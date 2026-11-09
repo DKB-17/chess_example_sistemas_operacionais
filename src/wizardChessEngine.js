@@ -1441,7 +1441,7 @@ export function initWizardChess() {
     let capturedByBlack = 0;
 
     // Mode & Player Configuration
-    let gameMode = 'single'; // 'single' | 'multi'
+    let gameMode = 'single'; // 'single' (vs AI) | 'local' (2 players, same device) | 'multi'
     let playerColor = 'w';   // 'w' | 'b' | 'spectator'
     let aiAutoPlay = true;
     let aiTimer = null;
@@ -3695,15 +3695,23 @@ export function initWizardChess() {
         }
       }
 
+      const isLocal = gameMode === 'local';
       if (modeBadge) {
-        modeBadge.textContent = `Playing as ${playerColor === 'w' ? 'White' : 'Black'}`;
+        modeBadge.textContent = isLocal
+          ? 'Local 2 Players'
+          : `Playing as ${playerColor === 'w' ? 'White' : 'Black'}`;
       }
       if (btnAiMove) {
-        btnAiMove.style.display = 'inline-flex';
+        btnAiMove.style.display = isLocal ? 'none' : 'inline-flex';
       }
       if (btnSideToggle) {
-        btnSideToggle.style.display = 'inline-flex';
+        btnSideToggle.style.display = isLocal ? 'none' : 'inline-flex';
         btnSideToggle.textContent = playerColor === 'w' ? 'Play as Black' : 'Play as White';
+      }
+      const btnModeToggle = document.getElementById('btn-mode-toggle');
+      if (btnModeToggle) {
+        btnModeToggle.textContent = isLocal ? 'Play vs AI' : '2 Players (Local)';
+        btnModeToggle.classList.toggle('active', isLocal);
       }
       if (roomPill) {
         roomPill.style.display = 'none';
@@ -4235,7 +4243,26 @@ export function initWizardChess() {
     document.getElementById('btn-script-next')?.addEventListener('click', () => stepScriptForward());
 
     document.getElementById('btn-ai-move')?.addEventListener('click', () => {
+      if (gameMode === 'local') return;
       triggerAIMoveNow();
+    });
+
+    // Switch between single-player vs AI and local hot-seat (2 players, no AI moves)
+    function setLocalGameMode(local) {
+      stopMultiplayerSync();
+      if (aiTimer) {
+        clearTimeout(aiTimer);
+        aiTimer = null;
+      }
+      scriptedGameActive = false;
+      roomCode = null;
+      gameMode = local ? 'local' : 'single';
+      if (local) playerColor = 'w';
+      resetChessBoard(true, false);
+    }
+
+    document.getElementById('btn-mode-toggle')?.addEventListener('click', () => {
+      setLocalGameMode(gameMode !== 'local');
     });
 
     document.getElementById('btn-side-toggle')?.addEventListener('click', () => {
@@ -4455,6 +4482,7 @@ export function initWizardChess() {
         renderer.render(scene, camera);
         return path;
       },
+      setLocalTwoPlayer: (enabled = true) => setLocalGameMode(Boolean(enabled)),
       setSinglePlayerSide: (color) => {
         stopMultiplayerSync();
         scriptedGameActive = false;
@@ -4943,6 +4971,11 @@ export function initWizardChess() {
       const urlSide = params.get('side');
       if (urlSide === 'b' || urlSide === 'black') {
         playerColor = 'b';
+      }
+      const urlMode = params.get('mode');
+      if (urlMode === 'local' || urlMode === '2p') {
+        gameMode = 'local';
+        playerColor = 'w';
       }
       resetChessBoard(true, true);
       if (navigator.webdriver) {
