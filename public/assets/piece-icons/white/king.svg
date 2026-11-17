@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <title>Rei branco</title>
+  <circle cx="128" cy="128" r="120" fill="#f3ead8" stroke="#c9a43a" stroke-width="8"/>
+  <circle cx="128" cy="128" r="108" fill="none" stroke="#c9a43a" stroke-width="2" opacity="0.6"/>
+  <rect x="121" y="36" width="14" height="42" rx="3" fill="#2a2118"/><rect x="106" y="49" width="44" height="13" rx="3" fill="#2a2118"/><path d="M128 82 c-36 0 -58 18 -52 40 c4 14 14 22 22 28 h60 c8-6 18-14 22-28 c6-22 -16-40 -52-40 z" fill="#2a2118"/><rect x="94" y="152" width="68" height="10" rx="4" fill="#2a2118"/><path d="M98 164 h60 l12 18 h-84 z" fill="#2a2118"/><rect x="74" y="182" width="108" height="18" rx="6" fill="#2a2118"/>
+</svg>

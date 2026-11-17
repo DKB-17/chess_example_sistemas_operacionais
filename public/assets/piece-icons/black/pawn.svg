@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <title>PeÃ£o preto</title>
+  <circle cx="128" cy="128" r="120" fill="#1f1b17" stroke="#c9a43a" stroke-width="8"/>
+  <circle cx="128" cy="128" r="108" fill="none" stroke="#c9a43a" stroke-width="2" opacity="0.6"/>
+  <circle cx="128" cy="84" r="26" fill="#efe3c8"/><path d="M104 114 h48 l-8 12 c10 18 16 36 18 56 h-68 c2-20 8-38 18-56 z" fill="#efe3c8"/><rect x="74" y="182" width="108" height="18" rx="6" fill="#efe3c8"/>
+</svg>

@@ -206,7 +206,301 @@ html, body, #root {
   display: none;
 }
 
+.hud-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+  transform: none;
+}
+
+/* ===== Partida Online: painel da sala ===== */
+.online-panel {
+  position: fixed;
+  left: 20px;
+  bottom: 64px;
+  z-index: 12;
+  width: min(400px, calc(100vw - 400px));
+  min-width: 280px;
+  padding: 12px 16px;
+  background: var(--hud-bg);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--hud-border);
+  border-radius: 14px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.6);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 0.82rem;
+}
+
+.online-panel-error {
+  border-color: rgba(230, 57, 70, 0.7);
+}
+
+.online-panel-title {
+  font-weight: 700;
+  color: var(--danger);
+}
+
+.online-panel-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.online-panel-label {
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.72rem;
+}
+
+.online-room-code {
+  font-family: 'Consolas', 'Courier New', monospace;
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  color: var(--gold-bright);
+  user-select: text;
+}
+
+.online-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-left: auto;
+}
+
+.online-dot-waiting {
+  background: #f4a261;
+  box-shadow: 0 0 8px rgba(244, 162, 97, 0.8);
+  animation: online-pulse 1.4s ease-in-out infinite;
+}
+
+.online-dot-ready {
+  background: #52b788;
+  box-shadow: 0 0 8px rgba(82, 183, 136, 0.9);
+}
+
+.online-dot-danger {
+  background: var(--danger);
+  box-shadow: 0 0 8px rgba(230, 57, 70, 0.9);
+}
+
+@keyframes online-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.online-panel-status {
+  color: var(--text);
+  line-height: 1.4;
+}
+
+.online-panel-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.online-panel-warning {
+  color: #f4a261;
+  font-size: 0.76rem;
+  cursor: pointer;
+}
+
+/* Aviso de partida encerrada (oponente saiu) */
+.online-panel-notice {
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(244, 162, 97, 0.55);
+  background: rgba(244, 162, 97, 0.12);
+  color: #f6c38f;
+  line-height: 1.4;
+}
+
+/* Botão "×" que recolhe o painel */
+.online-panel-hide {
+  margin-left: 4px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1px solid var(--hud-border);
+  background: transparent;
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.online-panel-hide:hover {
+  color: var(--gold-bright);
+  border-color: var(--gold-bright);
+}
+
+/* Painel recolhido: só um botão pequeno com o código da sala */
+.online-pill {
+  position: fixed;
+  left: 20px;
+  bottom: 64px;
+  z-index: 12;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.online-pill .online-dot {
+  margin-left: 0;
+}
+
+.online-pill-code {
+  font-family: 'Consolas', 'Courier New', monospace;
+  letter-spacing: 0.12em;
+  color: var(--gold-bright);
+}
+
+/* ===== Partida Online: chat ===== */
+.chat-panel {
+  position: fixed;
+  right: 20px;
+  bottom: 64px;
+  z-index: 12;
+  width: min(340px, calc(100vw - 32px));
+  height: min(420px, 52vh);
+  display: flex;
+  flex-direction: column;
+  background: var(--hud-bg);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--hud-border);
+  border-radius: 14px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+}
+
+.chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(212, 175, 55, 0.22);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--gold);
+}
+
+.chat-close {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.chat-close:hover {
+  color: var(--gold-bright);
+}
+
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  user-select: text;
+}
+
+.chat-empty {
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-align: center;
+  margin-top: 12px;
+}
+
+.chat-msg {
+  max-width: 85%;
+  padding: 7px 10px;
+  border-radius: 10px;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.chat-msg.mine {
+  align-self: flex-end;
+  background: rgba(212, 175, 55, 0.2);
+  border: 1px solid rgba(212, 175, 55, 0.35);
+}
+
+.chat-msg.theirs {
+  align-self: flex-start;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.chat-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.68rem;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+
+.chat-color-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #f5f3ef;
+}
+
+.chat-color-dot.black {
+  background: #2b303c;
+  border: 1px solid var(--gold);
+}
+
+.chat-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.chat-form {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid rgba(212, 175, 55, 0.22);
+}
+
+.chat-form input {
+  flex: 1;
+  min-width: 0;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  padding: 8px 12px;
+  color: var(--text);
+  font-size: 0.82rem;
+  outline: none;
+  user-select: text;
+}
+
+.chat-form input:focus {
+  border-color: var(--gold);
+}
+
+.chat-toggle {
+  position: fixed;
+  right: 20px;
+  bottom: 64px;
+  z-index: 12;
+}
+
 /* Cinematic UI Hidden Mode */
+body.cinematic-ui-hidden .online-panel,
+body.cinematic-ui-hidden .online-pill,
+body.cinematic-ui-hidden .chat-panel,
+body.cinematic-ui-hidden .chat-toggle,
 body.cinematic-ui-hidden #hud-top,
 body.cinematic-ui-hidden #hud-bottom {
   opacity: 0 !important;
@@ -648,12 +942,49 @@ body.cinematic-ui-hidden #hud-bottom {
     grid-column: span 2;
   }
 
-  /* 4 Camera View buttons in a 2x2 grid */
+  /* Local 2P + Online in one row */
+  #btn-mode-toggle,
+  #btn-online {
+    grid-column: span 3;
+  }
+
+  /* 4 Camera View buttons in a 2x2 grid + full-width 2D view */
   #btn-cam-player,
   #btn-cam-top,
   #btn-cam-side,
   #btn-cam-wide {
     grid-column: span 3;
+  }
+
+  #btn-cam-board {
+    grid-column: span 6;
+  }
+
+  .online-panel {
+    top: 62px;
+    bottom: auto;
+    left: 50%;
+    transform: translateX(-50%);
+    width: calc(100vw - 24px);
+    min-width: 0;
+    padding: 10px 12px;
+  }
+
+  .online-pill {
+    top: 62px;
+    bottom: auto;
+    left: 12px;
+  }
+
+  .chat-panel {
+    right: 12px;
+    bottom: 56px;
+    height: min(360px, 46vh);
+  }
+
+  .chat-toggle {
+    right: 12px;
+    bottom: 56px;
   }
 
   /* Full-width Hide UI button */

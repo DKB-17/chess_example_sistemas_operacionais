@@ -18,6 +18,8 @@ test('Simplified Single-Player HUD in src/App.tsx excludes speed sliders, notati
     'btn-cam-top',
     'btn-cam-side',
     'btn-cam-wide',
+    'btn-cam-board',
+    'btn-online',
     'btn-hide-ui',
     'controls-hint',
     'captured-tray'
@@ -41,6 +43,17 @@ test('Simplified Single-Player HUD in src/App.tsx excludes speed sliders, notati
     'btn-checkmate-stepback'
   ]) {
     assert.ok(!appTsx.includes(forbiddenId), `Forbidden UI element #${forbiddenId} found in App.tsx`);
+  }
+});
+
+test('Piece icons exist for every piece type and color (public/assets/piece-icons)', () => {
+  for (const color of ['white', 'black']) {
+    for (const type of ['pawn', 'rook', 'knight', 'bishop', 'queen', 'king']) {
+      const iconPath = path.join(ROOT, 'public/assets/piece-icons', color, `${type}.svg`);
+      assert.ok(fs.existsSync(iconPath), `Missing piece icon ${iconPath}`);
+      const svg = fs.readFileSync(iconPath, 'utf-8');
+      assert.ok(svg.includes('<svg') && svg.includes('width="256"'), `Invalid SVG icon ${iconPath}`);
+    }
   }
 });
 

@@ -1,0 +1,18 @@
+{
+  "name": "wizard-chess-server",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Servidor WebSocket (salas, chat e jogadas) do Wizard Chess",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "pg": "^8.13.1",
+    "ws": "^8.18.0"
+  }
+}

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <title>Bispo preto</title>
+  <circle cx="128" cy="128" r="120" fill="#1f1b17" stroke="#c9a43a" stroke-width="8"/>
+  <circle cx="128" cy="128" r="108" fill="none" stroke="#c9a43a" stroke-width="2" opacity="0.6"/>
+  <circle cx="128" cy="58" r="11" fill="#efe3c8"/><path d="M128 70 c-26 22 -38 44 -32 68 c3 10 10 16 18 18 h28 c8-2 15-8 18-18 c6-24 -6-46 -32-68 z" fill="#efe3c8"/><path d="M140 96 l-22 30" stroke="#1f1b17" stroke-width="7" stroke-linecap="round"/><rect x="100" y="158" width="56" height="10" rx="4" fill="#efe3c8"/><path d="M104 170 h48 l10 12 h-68 z" fill="#efe3c8"/><rect x="74" y="182" width="108" height="18" rx="6" fill="#efe3c8"/>
+</svg>

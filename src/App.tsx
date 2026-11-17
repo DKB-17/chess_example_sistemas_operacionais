@@ -1,9 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { initWizardChess } from './wizardChessEngine.js';
+import { onlineMatch } from './realtime/OnlineMatch.js';
+import { useOnlineMatch } from './realtime/useOnlineMatch';
+import OnlineRoomPanel from './components/OnlineRoomPanel';
+import ChatPanel from './components/ChatPanel';
 
 export default function App() {
   const initializedRef = useRef(false);
   const [mobileSheetOpen, setMobileSheetOpen] = useState(false);
+  const online = useOnlineMatch();
 
   useEffect(() => {
     if (initializedRef.current) return;
@@ -137,6 +142,19 @@ export default function App() {
             2 Players (Local)
           </button>
           <button
+            className={`hud-btn ${online.active ? 'active' : ''}`}
+            id="btn-online"
+            title="Cria uma sala com código na URL para jogar contra outro jogador (com chat)"
+            disabled={online.connection === 'creating'}
+            onClick={() => {
+              setMobileSheetOpen(false);
+              if (online.active) onlineMatch.leave();
+              else onlineMatch.createRoom();
+            }}
+          >
+            {online.active ? 'Sair da Sala' : 'Jogar Online'}
+          </button>
+          <button
             className="hud-btn"
             id="btn-side-toggle"
             title="Switch between Playing as White and Playing as Black"
@@ -195,6 +213,13 @@ export default function App() {
           >
             Cathedral
           </button>
+          <button
+            className="hud-btn"
+            id="btn-cam-board"
+            title="Visão superior 2D, como um tabuleiro comum, com ícones das peças (clique de novo para inverter Brancas / Pretas)"
+          >
+            Visão 2D
+          </button>
 
           <div className="hud-divider" aria-hidden="true"></div>
           <div className="mobile-sheet-section-label">Display &amp; Gestures</div>
@@ -220,6 +245,9 @@ export default function App() {
         </div>
         <div className="captured-pill" id="captured-tray"></div>
       </div>
+
+      <OnlineRoomPanel />
+      <ChatPanel />
 
       <div id="checkmate-overlay" role="status" aria-live="polite">
         <div className="checkmate-banner">

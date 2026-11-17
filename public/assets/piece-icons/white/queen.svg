@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <title>Rainha branco</title>
+  <circle cx="128" cy="128" r="120" fill="#f3ead8" stroke="#c9a43a" stroke-width="8"/>
+  <circle cx="128" cy="128" r="108" fill="none" stroke="#c9a43a" stroke-width="2" opacity="0.6"/>
+  <circle cx="76" cy="76" r="9" fill="#2a2118"/><circle cx="102" cy="64" r="9" fill="#2a2118"/><circle cx="128" cy="56" r="9" fill="#2a2118"/><circle cx="154" cy="64" r="9" fill="#2a2118"/><circle cx="180" cy="76" r="9" fill="#2a2118"/><path d="M76 86 L96 150 L160 150 L180 86 L156 116 L154 74 L140 112 L128 66 L116 112 L102 74 L100 116 Z" fill="#2a2118"/><rect x="92" y="152" width="72" height="10" rx="4" fill="#2a2118"/><path d="M96 164 h64 l12 18 h-88 z" fill="#2a2118"/><rect x="74" y="182" width="108" height="18" rx="6" fill="#2a2118"/>
+</svg>

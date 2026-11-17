@@ -2,6 +2,9 @@ import * as THREE_NS from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js';
+import { onlineMatch } from './realtime/OnlineMatch.js';
+import { parseRoomCodeFromPath, roomPath } from './realtime/roomCode.js';
+import { createPieceIconSystem } from './pieceIcons.js';
 
 /** @type {any} */
 const THREE = THREE_NS;
@@ -35,6 +38,12 @@ export function initWizardChess() {
     // =========================================================================
     // Scene, Camera, Renderer, and Cathedral Lighting
     // =========================================================================
+    // Normaliza a URL da sala: "/X9T2G/" -> "/x9t2g" (os assets usam caminho relativo)
+    const initialRoomCode = parseRoomCodeFromPath(window.location.pathname);
+    if (initialRoomCode && window.location.pathname !== roomPath(initialRoomCode)) {
+      window.history.replaceState({}, '', roomPath(initialRoomCode) + window.location.search);
+    }
+
     const container = document.getElementById('canvas-container') || document.getElementById('viewport-container');
     if (container) container.innerHTML = '';
     const isAutomatedTest = Boolean(
@@ -1446,13 +1455,16 @@ export function initWizardChess() {
     let aiAutoPlay = true;
     let aiTimer = null;
 
-    // Multiplayer State
+    // Multiplayer State (partida online via WebSocket — ver src/realtime/)
     let roomCode = null;
-    let playerToken = localStorage.getItem('wizard_chess_token') || '';
-    let roomEventSource = null;
-    let roomPollTimer = null;
-    let appliedMoveSeq = 0;
-    let appliedResetCount = 0;
+    let appliedMoveSeq = 0; // quantas jogadas oficiais (numeradas pelo servidor) já estão no tabuleiro
+    let onlineReady = false; // os 2 jogadores estão conectados na sala?
+
+    // Ícones das peças (desenhados no chão, embaixo de cada peça — ver src/pieceIcons.js)
+    const pieceIcons = createPieceIconSystem({
+      squareSize: BOARD_SQ_SIZE,
+      maxAnisotropy: renderer.capabilities.getMaxAnisotropy()
+    });
 
     // Camera Animation & Telemetry State
     const cameraTelemetry = {
@@ -1553,6 +1565,9 @@ export function initWizardChess() {
       root.scale.set(scale, scale, scale);
       // White (at +Z, r=6,7) faces -Z (Math.PI); Black (at -Z, r=0,1) faces +Z (0)
       root.rotation.y = color === 'w' ? Math.PI : 0;
+      // Símbolo da peça no chão (filho do modelo: anda junto e é removido junto na captura)
+      const iconPivot = pieceIcons.createIcon(type, color, scale);
+      root.add(iconPivot);
       scene.add(root);
 
       const pieceObj = {
@@ -1561,6 +1576,7 @@ export function initWizardChess() {
         r,
         c,
         mesh: root,
+        iconPivot,
         mixer,
         actions,
         currentAction: null,
@@ -1987,6 +2003,13 @@ export function initWizardChess() {
       const selPos = boardToWorld(r, c);
       selMesh.position.set(selPos.x, BOARD_SURFACE_Y + 0.01, selPos.z);
       squareHighlightsGroup.add(selMesh);
+      // Na Visão 2D os destaques ficam por cima dos ícones das peças
+      const highlightsOnTop = pieceIcons.isOverlay();
+      const finalizeHighlight = (mesh) => {
+        mesh.renderOrder = 20;
+        mesh.material.depthTest = !highlightsOnTop;
+      };
+      finalizeHighlight(selMesh);
 
       for (const m of moves) {
         const pos = boardToWorld(m.r, m.c);
@@ -1996,6 +2019,7 @@ export function initWizardChess() {
           const capMat = new THREE.MeshBasicMaterial({ color: 0xe63946, side: THREE.DoubleSide });
           const capMesh = new THREE.Mesh(capGeo, capMat);
           capMesh.position.set(pos.x, BOARD_SURFACE_Y + 0.012, pos.z);
+          finalizeHighlight(capMesh);
           squareHighlightsGroup.add(capMesh);
         } else {
           const dotGeo = new THREE.CircleGeometry(0.06, 24);
@@ -2008,6 +2032,7 @@ export function initWizardChess() {
           });
           const dotMesh = new THREE.Mesh(dotGeo, dotMat);
           dotMesh.position.set(pos.x, BOARD_SURFACE_Y + 0.01, pos.z);
+          finalizeHighlight(dotMesh);
           squareHighlightsGroup.add(dotMesh);
         }
       }
@@ -2137,11 +2162,9 @@ export function initWizardChess() {
       selectedSquare = null;
       validMoves = [];
 
-      // Broadcast to multiplayer room (cloud API + static BroadcastChannel/localStorage fallback)
+      // Partida online: envia a jogada local pelo WebSocket (jogadas remotas não são reenviadas)
       if (gameMode === 'multi' && roomCode && !options.fromRemote) {
         sendMultiplayerMove({
-          playerToken,
-          color: piece.color,
           from: { r: fromR, c: fromC },
           to: { r: toR, c: toC },
           promotion: 'queen'
@@ -3686,7 +3709,11 @@ export function initWizardChess() {
         const turnLabel = currentTurn === 'w' ? 'White to Move' : 'Black to Move';
         const aiColor = playerColor === 'w' ? 'b' : 'w';
         const isAiTurn = !scriptedGameActive && gameMode === 'single' && currentTurn === aiColor;
-        if (inCheck) {
+        if (gameMode === 'multi' && !onlineReady) {
+          turnText.textContent = 'Aguardando oponente...';
+        } else if (gameMode === 'multi' && !inCheck) {
+          turnText.textContent = currentTurn === playerColor ? `${turnLabel} (Sua vez)` : `${turnLabel} (Oponente)`;
+        } else if (inCheck) {
           turnText.textContent = `${turnLabel} (Check!)`;
         } else if (isAiTurn) {
           turnText.textContent = `${turnLabel} (AI)...`;
@@ -3696,16 +3723,19 @@ export function initWizardChess() {
       }
 
       const isLocal = gameMode === 'local';
+      const isOnline = gameMode === 'multi';
       if (modeBadge) {
         modeBadge.textContent = isLocal
           ? 'Local 2 Players'
-          : `Playing as ${playerColor === 'w' ? 'White' : 'Black'}`;
+          : isOnline
+            ? `Online • Sala ${roomCode} • ${playerColor === 'w' ? 'Brancas' : 'Pretas'}`
+            : `Playing as ${playerColor === 'w' ? 'White' : 'Black'}`;
       }
       if (btnAiMove) {
-        btnAiMove.style.display = isLocal ? 'none' : 'inline-flex';
+        btnAiMove.style.display = isLocal || isOnline ? 'none' : 'inline-flex';
       }
       if (btnSideToggle) {
-        btnSideToggle.style.display = isLocal ? 'none' : 'inline-flex';
+        btnSideToggle.style.display = isLocal || isOnline ? 'none' : 'inline-flex';
         btnSideToggle.textContent = playerColor === 'w' ? 'Play as Black' : 'Play as White';
       }
       const btnModeToggle = document.getElementById('btn-mode-toggle');
@@ -3742,7 +3772,8 @@ export function initWizardChess() {
       if (isAnimatingMove || gameOver) return;
 
       // Enforce turn ownership in Multiplayer, and in Single Player only block while AI auto-move timer is actively pending
-      if (gameMode === 'multi' && currentTurn !== playerColor) return;
+      // Online: só joga na sua vez E com os 2 jogadores conectados
+      if (gameMode === 'multi' && (currentTurn !== playerColor || !onlineReady)) return;
       if (!scriptedGameActive && gameMode === 'single' && currentTurn !== playerColor && aiTimer !== null) return;
 
       const rect = renderer.domElement.getBoundingClientRect();
@@ -3818,327 +3849,172 @@ export function initWizardChess() {
     });
 
     // =========================================================================
-    // Multiplayer Room Synchronization (Same-Origin API + Static Site Fallback)
+    // Partida Online (WebSocket)
+    //
+    // A conexão, o chat e a sala ficam em src/realtime/ (OnlineMatch,
+    // GameSocketChannel, ChatService). Aqui o motor só reage aos eventos:
+    //   joined/sync -> reconstrói o tabuleiro com as jogadas oficiais do servidor
+    //   move        -> anima a jogada do oponente
+    //   reset       -> nova partida na mesma sala
+    //   presence    -> libera/bloqueia o tabuleiro (precisa de 2 jogadores)
     // =========================================================================
-    const CLOUD_MP_API_BASE = '';
-    const isStaticHost =
-      window.location.hostname.includes('zipline') ||
-      window.location.hostname.includes('github.io') ||
-      window.location.protocol === 'file:';
+    const pendingRemoteMoves = []; // jogadas recebidas esperando a animação atual terminar
+    let remoteMoveTimer = null;
+    let lastJoinedRoomCode = null;
 
-    let staticBroadcastChannel = null;
-    try {
-      if (typeof BroadcastChannel !== 'undefined') {
-        staticBroadcastChannel = new BroadcastChannel('wizard_chess_mp_channel');
-        staticBroadcastChannel.onmessage = (ev) => {
-          const msg = ev.data;
-          if (msg && msg.type === 'room_state' && msg.room && msg.room.code === roomCode) {
-            applyRemoteRoomState(msg.room);
-          }
-        };
+    function clearPendingRemoteMoves() {
+      pendingRemoteMoves.length = 0;
+      if (remoteMoveTimer) {
+        clearTimeout(remoteMoveTimer);
+        remoteMoveTimer = null;
       }
-    } catch (e) {}
-
-    window.addEventListener('storage', (ev) => {
-      if (ev.key === `wizard_chess_room_${roomCode}` && ev.newValue) {
-        try {
-          applyRemoteRoomState(JSON.parse(ev.newValue));
-        } catch (e) {}
-      }
-    });
-
-    function getStaticRoom(code) {
-      try {
-        const raw = localStorage.getItem(`wizard_chess_room_${code}`);
-        return raw ? JSON.parse(raw) : null;
-      } catch (e) {
-        return null;
-      }
-    }
-
-    function saveAndBroadcastStaticRoom(room) {
-      try {
-        localStorage.setItem(`wizard_chess_room_${room.code}`, JSON.stringify(room));
-      } catch (e) {}
-      try {
-        if (staticBroadcastChannel) {
-          staticBroadcastChannel.postMessage({ type: 'room_state', room });
-        }
-      } catch (e) {}
-    }
-
-    function ensurePlayerToken() {
-      if (!playerToken) {
-        playerToken = 'tok_' + Math.random().toString(36).slice(2, 12) + Date.now().toString(36);
-        try {
-          localStorage.setItem('wizard_chess_token', playerToken);
-        } catch (e) {}
-      }
-      return playerToken;
-    }
-
-    async function mpApiRequest(apiPath, options = {}) {
-      const bases = isStaticHost
-        ? (CLOUD_MP_API_BASE ? [CLOUD_MP_API_BASE] : [])
-        : (CLOUD_MP_API_BASE ? ['', CLOUD_MP_API_BASE] : ['']);
-      for (const base of bases) {
-        try {
-          const res = await fetch(`${base}${apiPath}`, options);
-          if (res.ok) {
-            const ct = res.headers.get('content-type') || '';
-            if (ct.includes('application/json')) {
-              return await res.json();
-            }
-          }
-        } catch (e) {}
-      }
-      return null;
-    }
-
-    async function sendMultiplayerMove(movePayload) {
-      if (!roomCode) return;
-      // 1. Update static local/BroadcastChannel room store immediately
-      const stRoom = getStaticRoom(roomCode);
-      if (stRoom) {
-        stRoom.moves = stRoom.moves || [];
-        stRoom.moves.push({
-          seq: stRoom.moves.length + 1,
-          color: movePayload.color,
-          from: movePayload.from,
-          to: movePayload.to,
-          promotion: movePayload.promotion || 'queen',
-          ts: Date.now()
-        });
-        stRoom.turn = movePayload.color === 'w' ? 'b' : 'w';
-        stRoom.updatedAt = Date.now();
-        saveAndBroadcastStaticRoom(stRoom);
-      }
-      // 2. Also broadcast to cloud/local room API if reachable
-      await mpApiRequest(`/api/rooms/${roomCode}/move`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(movePayload)
-      });
     }
 
     function stopMultiplayerSync() {
-      if (roomEventSource) {
-        roomEventSource.close();
-        roomEventSource = null;
+      clearPendingRemoteMoves();
+      onlineReady = false;
+    }
+
+    // Jogada local: é aplicada na hora (otimista) e enviada com o número de sequência
+    // esperado. Se o servidor recusar, ele devolve o estado oficial ('sync').
+    function sendMultiplayerMove(move) {
+      appliedMoveSeq += 1;
+      onlineMatch.sendMove({ seq: appliedMoveSeq, ...move });
+    }
+
+    // Aplica instantaneamente (sem animação) a lista oficial de jogadas.
+    // Usado ao entrar/reconectar na sala e quando o cliente sai de sincronia.
+    function rebuildBoardFromMoves(moves, orientCamera) {
+      clearPendingRemoteMoves();
+      resetChessBoard(false);
+      for (const mv of moves || []) {
+        const ok = executeChessMove(mv.from.r, mv.from.c, mv.to.r, mv.to.c, {
+          fromRemote: true,
+          promotion: mv.promotion
+        });
+        if (!ok) {
+          console.warn('[online] jogada inválida ao reconstruir o tabuleiro:', mv);
+          break;
+        }
+        completeCurrentMoveImmediately();
       }
-      if (roomPollTimer) {
-        clearInterval(roomPollTimer);
-        roomPollTimer = null;
+      appliedMoveSeq = (moves || []).length;
+      for (const d of shatterDebris) {
+        if (d.mesh) scene.remove(d.mesh);
+      }
+      shatterDebris.length = 0;
+      if (orientCamera) {
+        const side = playerColor === 'b' ? 'b' : 'w';
+        playerCamSide = side;
+        setActiveCamButton('btn-cam-player');
+        setCameraForSide(side, false);
+      }
+      updateTurnUI();
+    }
+
+    function handleRemoteMove(mv) {
+      if (!mv || mv.seq <= appliedMoveSeq) return; // eco da minha própria jogada (já aplicada)
+      pendingRemoteMoves.push(mv);
+      pendingRemoteMoves.sort((a, b) => a.seq - b.seq);
+      processPendingRemoteMoves();
+    }
+
+    function processPendingRemoteMoves() {
+      remoteMoveTimer = null;
+      while (pendingRemoteMoves.length && pendingRemoteMoves[0].seq <= appliedMoveSeq) {
+        pendingRemoteMoves.shift();
+      }
+      if (!pendingRemoteMoves.length || gameMode !== 'multi') return;
+      if (isAnimatingMove) {
+        remoteMoveTimer = setTimeout(processPendingRemoteMoves, 120);
+        return;
+      }
+      const mv = pendingRemoteMoves[0];
+      if (mv.seq !== appliedMoveSeq + 1) {
+        // Perdemos alguma jogada no caminho: pede o estado completo ao servidor
+        clearPendingRemoteMoves();
+        onlineMatch.requestSync();
+        return;
+      }
+      pendingRemoteMoves.shift();
+      const ok = executeChessMove(mv.from.r, mv.from.c, mv.to.r, mv.to.c, {
+        fromRemote: true,
+        promotion: mv.promotion
+      });
+      if (!ok) {
+        clearPendingRemoteMoves();
+        onlineMatch.requestSync();
+        return;
+      }
+      appliedMoveSeq = mv.seq;
+      if (pendingRemoteMoves.length) {
+        remoteMoveTimer = setTimeout(processPendingRemoteMoves, 120);
       }
     }
 
-    function applyRemoteRoomState(room) {
-      if (!room) return;
-      const statusEl = document.getElementById('hud-room-status');
-      const bothReady = room.whiteJoined && room.blackJoined;
-      if (statusEl) {
-        statusEl.textContent = bothReady ? '2/2 Connected' : 'Waiting for Opponent';
-      }
-      const mpMsg = document.getElementById('mp-status-msg');
-      if (mpMsg && roomCode) {
-        mpMsg.textContent = bothReady
-          ? `Both players connected to Room ${room.code}!`
-          : `Room ${room.code} ready — waiting for second player to join...`;
-      }
-
-      if (room.resetCount > appliedResetCount) {
-        appliedResetCount = room.resetCount;
-        appliedMoveSeq = 0;
-        resetChessBoard(false);
-      }
-
-      if (Array.isArray(room.moves) && room.moves.length > appliedMoveSeq) {
-        const tryApplyNext = () => {
-          if (isAnimatingMove) {
-            setTimeout(tryApplyNext, 120);
-            return;
-          }
-          if (appliedMoveSeq >= room.moves.length) return;
-          const nextMove = room.moves[appliedMoveSeq];
-          appliedMoveSeq = nextMove.seq || (appliedMoveSeq + 1);
-          const pieceAtFrom = boardState[nextMove.from.r]?.[nextMove.from.c];
-          if (pieceAtFrom) {
-            executeChessMove(
-              nextMove.from.r,
-              nextMove.from.c,
-              nextMove.to.r,
-              nextMove.to.c,
-              { fromRemote: true }
-            );
-          }
-          if (appliedMoveSeq < room.moves.length) {
-            setTimeout(tryApplyNext, 250);
-          }
-        };
-        tryApplyNext();
-      }
+    function deselectBoard() {
+      clearSquareHighlights();
+      selectedSquare = null;
+      validMoves = [];
     }
 
-    function startMultiplayerSync(code) {
+    onlineMatch.on('joined', (payload) => {
+      if (aiTimer) {
+        clearTimeout(aiTimer);
+        aiTimer = null;
+      }
+      scriptedGameActive = false;
+      gameMode = 'multi';
+      playerColor = payload.color;
+      roomCode = payload.code;
+      onlineReady = Boolean(payload.presence?.ready);
+      // Só reposiciona a câmera na primeira entrada na sala (não em reconexões)
+      const firstJoin = lastJoinedRoomCode !== payload.code;
+      lastJoinedRoomCode = payload.code;
+      rebuildBoardFromMoves(payload.moves, firstJoin);
+    });
+
+    onlineMatch.on('sync', (payload) => {
+      if (gameMode !== 'multi') return;
+      onlineReady = Boolean(payload.presence?.ready);
+      rebuildBoardFromMoves(payload.moves, false);
+    });
+
+    onlineMatch.on('presence', (presence) => {
+      if (gameMode !== 'multi') return;
+      onlineReady = Boolean(presence.ready);
+      if (!onlineReady) deselectBoard();
+      updateTurnUI();
+    });
+
+    onlineMatch.on('move', handleRemoteMove);
+
+    onlineMatch.on('reset', () => {
+      if (gameMode !== 'multi') return;
+      clearPendingRemoteMoves();
+      appliedMoveSeq = 0;
+      resetChessBoard(false);
+    });
+
+    // Um jogador saiu: a partida acabou. O tabuleiro volta ao início e fica travado
+    // em "Aguardando oponente..." até alguém ocupar a vaga livre pelo mesmo link.
+    onlineMatch.on('match_ended', (payload) => {
+      if (gameMode !== 'multi') return;
+      clearPendingRemoteMoves();
+      appliedMoveSeq = 0;
+      onlineReady = Boolean(payload.presence?.ready);
+      resetChessBoard(false);
+    });
+
+    onlineMatch.on('left', () => {
       stopMultiplayerSync();
-      roomCode = code;
-
-      if (!isStaticHost) {
-        try {
-          roomEventSource = new EventSource(`/api/rooms/${code}/events`);
-          roomEventSource.onmessage = (ev) => {
-            try {
-              const data = JSON.parse(ev.data);
-              if (data.room) applyRemoteRoomState(data.room);
-            } catch (e) {}
-          };
-        } catch (e) {}
-      }
-
-      roomPollTimer = setInterval(async () => {
-        if (gameMode !== 'multi' || !roomCode) return;
-        const data = await mpApiRequest(
-          `/api/rooms/${roomCode}/state?playerToken=${encodeURIComponent(playerToken)}`
-        );
-        if (data && data.ok && data.room) {
-          saveAndBroadcastStaticRoom(data.room);
-          applyRemoteRoomState(data.room);
-          return;
-        }
-        const stRoom = getStaticRoom(roomCode);
-        if (stRoom) {
-          applyRemoteRoomState(stRoom);
-        }
-      }, 1500);
-    }
-
-    async function createMultiplayerRoom(preferredColor) {
-      const mpMsg = document.getElementById('mp-status-msg');
-      mpMsg.textContent = 'Creating room...';
-      ensurePlayerToken();
-
-      let data = await mpApiRequest('/api/rooms/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ preferredColor, playerToken })
-      });
-
-      // Pure static fallback if neither local nor remote server is reachable
-      if (!data || !data.ok) {
-        const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-        let genCode = '';
-        for (let i = 0; i < 4; i++) {
-          genCode += chars[Math.floor(Math.random() * chars.length)];
-        }
-        const side = preferredColor === 'b' ? 'b' : 'w';
-        const staticRoom = {
-          code: genCode,
-          status: 'waiting',
-          whiteJoined: side === 'w',
-          blackJoined: side === 'b',
-          turn: 'w',
-          moves: [],
-          resetCount: 0,
-          updatedAt: Date.now()
-        };
-        saveAndBroadcastStaticRoom(staticRoom);
-        data = {
-          ok: true,
-          code: genCode,
-          color: side,
-          playerToken,
-          room: staticRoom
-        };
-      } else if (data.room) {
-        saveAndBroadcastStaticRoom(data.room);
-      }
-
-      playerToken = data.playerToken;
-      try {
-        localStorage.setItem('wizard_chess_token', playerToken);
-      } catch (e) {}
-      scriptedGameActive = false;
-      gameMode = 'multi';
-      playerColor = data.color;
-      roomCode = data.code;
+      lastJoinedRoomCode = null;
+      roomCode = null;
       appliedMoveSeq = 0;
-      appliedResetCount = data.room.resetCount || 0;
-
-      document.getElementById('modal-room-code').textContent = roomCode;
-      document.getElementById('room-created-panel').style.display = 'block';
-
+      gameMode = 'single';
+      playerColor = 'w';
       resetChessBoard(true);
-      startMultiplayerSync(roomCode);
-      applyRemoteRoomState(data.room);
-      window.history.replaceState({}, '', `?room=${roomCode}`);
-    }
-
-    async function joinMultiplayerRoom(codeInput) {
-      const code = String(codeInput || '').trim().toUpperCase();
-      const mpMsg = document.getElementById('mp-status-msg');
-      if (!code) {
-        mpMsg.textContent = 'Please enter a 4-character Room Code.';
-        return false;
-      }
-      mpMsg.textContent = `Joining room ${code}...`;
-      ensurePlayerToken();
-
-      let data = await mpApiRequest('/api/rooms/join', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code, playerToken })
-      });
-
-      if (!data || !data.ok) {
-        let stRoom = getStaticRoom(code);
-        if (!stRoom) {
-          stRoom = {
-            code,
-            status: 'playing',
-            whiteJoined: true,
-            blackJoined: true,
-            turn: 'w',
-            moves: [],
-            resetCount: 0,
-            updatedAt: Date.now()
-          };
-        } else {
-          if (!stRoom.whiteJoined) stRoom.whiteJoined = true;
-          else if (!stRoom.blackJoined) stRoom.blackJoined = true;
-          stRoom.status = stRoom.whiteJoined && stRoom.blackJoined ? 'playing' : 'waiting';
-          stRoom.updatedAt = Date.now();
-        }
-        const assignedColor = !stRoom.blackJoined ? 'w' : 'b';
-        saveAndBroadcastStaticRoom(stRoom);
-        data = {
-          ok: true,
-          code,
-          color: assignedColor,
-          playerToken,
-          room: stRoom
-        };
-      } else if (data.room) {
-        saveAndBroadcastStaticRoom(data.room);
-      }
-
-      playerToken = data.playerToken;
-      try {
-        localStorage.setItem('wizard_chess_token', playerToken);
-      } catch (e) {}
-      scriptedGameActive = false;
-      gameMode = 'multi';
-      playerColor = data.color;
-      roomCode = data.code;
-      appliedMoveSeq = 0;
-      appliedResetCount = data.room.resetCount || 0;
-
-      resetChessBoard(true);
-      startMultiplayerSync(roomCode);
-      applyRemoteRoomState(data.room);
-      window.history.replaceState({}, '', `?room=${roomCode}`);
-      closeLobbyModal();
-      return true;
-    }
+    });
 
     // =========================================================================
     // Camera Presets & HUD Controls
@@ -4147,20 +4023,44 @@ export function initWizardChess() {
       'btn-cam-player',
       'btn-cam-top',
       'btn-cam-side',
-      'btn-cam-wide'
+      'btn-cam-wide',
+      'btn-cam-board'
     ];
+
+    let boardViewActive = false; // Visão 2D (de cima) ligada?
 
     function setActiveCamButton(activeId) {
       for (const id of camButtons) {
         const el = document.getElementById(id);
         if (el) el.classList.toggle('active', id === activeId);
       }
+      boardViewActive = activeId === 'btn-cam-board';
+      // Na visão 2D a câmera pode ficar praticamente a 90° em cima do tabuleiro
+      orbitControls.minPolarAngle = boardViewActive ? 0.001 : 0.05;
     }
 
     let playerCamSide = 'w';     // toggles 'w' (White) <-> 'b' (Black) on repeat click of Player Cam
     let overheadCamSide = 'w';   // toggles 'w' (White) <-> 'b' (Black) on repeat click of Overhead
     let sideCamSide = 'east';    // toggles 'east' (+X) <-> 'west' (-X) on repeat click of Side
     let cathedralWideSide = 'north'; // toggles 'north' (Rose Window) <-> 'south' (Narthex Triptych) on repeat click of Cathedral
+    let boardCamSide = 'w';      // Visão 2D: lado de baixo da tela ('w' Brancas / 'b' Pretas)
+
+    // Visão 2D: câmera exatamente em cima do centro do tabuleiro, numa altura
+    // calculada para o tabuleiro inteiro caber na tela (em paisagem ou retrato).
+    function getBoardViewPose(side) {
+      const halfBoard = BOARD_SQ_SIZE * 4 + 0.36; // meio tabuleiro + margem (moldura e HUD)
+      const tanHalfFov = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+      const dist = Math.max(halfBoard / tanHalfFov, halfBoard / (tanHalfFov * camera.aspect));
+      const zSign = side === 'b' ? -1 : 1;
+      // Desloca o enquadramento um pouco para "cima" da tela, deixando o tabuleiro
+      // levemente mais baixo e livre dos botões do topo
+      const shiftZ = -zSign * 0.14;
+      return {
+        // Um deslocamento mínimo em Z define qual lado fica embaixo na tela
+        pos: new THREE.Vector3(0, BOARD_SURFACE_Y + dist, shiftZ + zSign * 0.003),
+        target: new THREE.Vector3(0, BOARD_SURFACE_Y, shiftZ)
+      };
+    }
 
     function setCameraPose(posArr, targetArr) {
       activeCamTransition = null;
@@ -4219,6 +4119,16 @@ export function initWizardChess() {
           // White's wide Cathedral perspective looking North toward the Rose Window (chessboard centered in frame)
           smoothCameraTo(new THREE.Vector3(0, 2.55, 6.65), new THREE.Vector3(0, 1.95, -2.50), 0.85);
         }
+      } else if (preset === 'board') {
+        const wasBoardActive = document.getElementById('btn-cam-board')?.classList.contains('active');
+        if (wasBoardActive) {
+          boardCamSide = boardCamSide === 'w' ? 'b' : 'w';
+        } else {
+          boardCamSide = playerColor === 'b' ? 'b' : 'w';
+        }
+        setActiveCamButton('btn-cam-board');
+        const pose = getBoardViewPose(boardCamSide);
+        smoothCameraTo(pose.pos, pose.target, 0.75);
       } else if (preset === 'white_backdrop') {
         smoothCameraTo(new THREE.Vector3(0, 2.35, -3.10), new THREE.Vector3(0, 2.20, 8.50), 0.85);
       } else if (preset === 'vaults') {
@@ -4236,6 +4146,7 @@ export function initWizardChess() {
     document.getElementById('btn-cam-top')?.addEventListener('click', () => setCameraPreset('top'));
     document.getElementById('btn-cam-side')?.addEventListener('click', () => setCameraPreset('side'));
     document.getElementById('btn-cam-wide')?.addEventListener('click', () => setCameraPreset('wide'));
+    document.getElementById('btn-cam-board')?.addEventListener('click', () => setCameraPreset('board'));
     document.getElementById('btn-hide-ui')?.addEventListener('click', () => toggleUI());
 
     document.getElementById('btn-script-modal')?.addEventListener('click', () => openLobbyModal('script'));
@@ -4249,6 +4160,7 @@ export function initWizardChess() {
 
     // Switch between single-player vs AI and local hot-seat (2 players, no AI moves)
     function setLocalGameMode(local) {
+      if (onlineMatch.getState().active) onlineMatch.leave(); // sai da sala online, se estiver em uma
       stopMultiplayerSync();
       if (aiTimer) {
         clearTimeout(aiTimer);
@@ -4271,29 +4183,22 @@ export function initWizardChess() {
       resetChessBoard(true, scriptedGameActive);
     });
 
-    document.getElementById('btn-reset')?.addEventListener('click', async () => {
+    // Nova partida. Online, o pedido vai ao servidor, que reinicia para os dois jogadores.
+    function requestNewGame() {
       if (gameMode === 'multi' && roomCode) {
-        const stRoom = getStaticRoom(roomCode);
-        if (stRoom) {
-          stRoom.moves = [];
-          stRoom.turn = 'w';
-          stRoom.resetCount = (stRoom.resetCount || 0) + 1;
-          stRoom.updatedAt = Date.now();
-          saveAndBroadcastStaticRoom(stRoom);
-          applyRemoteRoomState(stRoom);
-        }
-        await mpApiRequest(`/api/rooms/${roomCode}/reset`, { method: 'POST' });
+        onlineMatch.requestReset();
       } else {
         resetChessBoard(true, false);
       }
-    });
+    }
+
+    document.getElementById('btn-reset')?.addEventListener('click', requestNewGame);
 
     // =========================================================================
     // Lobby & Director Script Modal Interactions
     // =========================================================================
     const lobbyModal = document.getElementById('lobby-modal');
     let selectedSpColor = 'w';
-    let selectedMpColor = 'w';
 
     function openLobbyModal(tab = null) {
       lobbyModal?.classList.add('open');
@@ -4369,53 +4274,6 @@ export function initWizardChess() {
       resetChessBoard(true);
     });
 
-    document.getElementById('pick-mp-white')?.addEventListener('click', () => {
-      selectedMpColor = 'w';
-      document.getElementById('pick-mp-white').classList.add('selected');
-      document.getElementById('pick-mp-black').classList.remove('selected');
-    });
-    document.getElementById('pick-mp-black')?.addEventListener('click', () => {
-      selectedMpColor = 'b';
-      document.getElementById('pick-mp-black').classList.add('selected');
-      document.getElementById('pick-mp-white').classList.remove('selected');
-    });
-
-    document.getElementById('btn-create-room')?.addEventListener('click', () => {
-      createMultiplayerRoom(selectedMpColor);
-    });
-
-    document.getElementById('btn-enter-created-room')?.addEventListener('click', () => {
-      closeLobbyModal();
-    });
-
-    document.getElementById('btn-copy-code')?.addEventListener('click', () => {
-      if (!roomCode) return;
-      navigator.clipboard?.writeText(roomCode);
-      document.getElementById('mp-status-msg').textContent = `Copied room code ${roomCode}!`;
-    });
-
-    document.getElementById('btn-copy-link')?.addEventListener('click', () => {
-      if (!roomCode) return;
-      const inviteUrl = `${window.location.origin}${window.location.pathname}?room=${roomCode}`;
-      navigator.clipboard?.writeText(inviteUrl);
-      document.getElementById('mp-status-msg').textContent = 'Copied invite link to clipboard!';
-    });
-
-    document.getElementById('room-pill')?.addEventListener('click', () => {
-      openLobbyModal('multi');
-    });
-
-    document.getElementById('btn-join-room')?.addEventListener('click', () => {
-      const val = document.getElementById('input-room-code').value;
-      joinMultiplayerRoom(val);
-    });
-
-    document.getElementById('input-room-code')?.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        joinMultiplayerRoom(e.target.value);
-      }
-    });
-
     document.getElementById('btn-checkmate-stepback')?.addEventListener('click', () => {
       stepScriptBackward();
     });
@@ -4424,9 +4282,7 @@ export function initWizardChess() {
       const winCol = checkmateState.winnerColor || (defCol === 'w' ? 'b' : 'w');
       triggerCheckmateSequence(defCol, winCol);
     });
-    document.getElementById('btn-checkmate-newgame')?.addEventListener('click', () => {
-      resetChessBoard(true, false);
-    });
+    document.getElementById('btn-checkmate-newgame')?.addEventListener('click', requestNewGame);
     document.getElementById('btn-checkmate-dismiss')?.addEventListener('click', () => {
       const overlay = document.getElementById('checkmate-overlay');
       if (overlay) overlay.classList.remove('visible');
@@ -4833,8 +4689,12 @@ export function initWizardChess() {
 
           if (heldCameraKeys.size > 0) {
             document
-              .querySelectorAll('#btn-cam-player, #btn-cam-wide, #btn-cam-top, #btn-cam-side')
+              .querySelectorAll('#btn-cam-player, #btn-cam-wide, #btn-cam-top, #btn-cam-side, #btn-cam-board')
               .forEach((b) => b.classList.remove('active'));
+            if (boardViewActive) {
+              boardViewActive = false;
+              orbitControls.minPolarAngle = 0.05;
+            }
           }
         }
       }
@@ -4938,6 +4798,20 @@ export function initWizardChess() {
         renderer.shadowMap.needsUpdate = true;
       }
 
+      // Ícones das peças: na Visão 2D ficam por cima dos modelos (exceto durante o close
+      // cinematográfico de captura) e sempre giram para ficar "de pé" para quem olha.
+      pieceIcons.setOverlayMode(boardViewActive && !activeDuelSavedCam);
+      const iconViewYaw = Math.atan2(
+        camera.position.x - orbitControls.target.x,
+        camera.position.z - orbitControls.target.z
+      );
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+          const p = boardState[r][c];
+          if (p) pieceIcons.orient(p, iconViewYaw);
+        }
+      }
+
       if (doRender) {
         renderer.render(scene, camera);
       }
@@ -4961,6 +4835,11 @@ export function initWizardChess() {
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight);
+      // Na Visão 2D, recalcula a altura para o tabuleiro continuar cabendo na tela
+      if (boardViewActive && !isAnimatingMove) {
+        const pose = getBoardViewPose(boardCamSide);
+        smoothCameraTo(pose.pos, pose.target, 0.3);
+      }
     });
 
 
@@ -4978,6 +4857,19 @@ export function initWizardChess() {
         playerColor = 'w';
       }
       resetChessBoard(true, true);
+
+      // URL com código de sala (ex.: /x9t2g): entra na partida online daquela sala
+      const urlRoomCode = parseRoomCodeFromPath(window.location.pathname);
+      if (urlRoomCode) onlineMatch.join(urlRoomCode);
+
+      // Botões voltar/avançar do navegador entre "/" e "/codigo"
+      window.addEventListener('popstate', () => {
+        const code = parseRoomCodeFromPath(window.location.pathname);
+        const current = onlineMatch.getState();
+        if (code && code !== current.roomCode) onlineMatch.join(code);
+        else if (!code && current.active) onlineMatch.leave();
+      });
+
       if (navigator.webdriver) {
         window.wizardChess.stepBy(0.9, 15);
       } else {

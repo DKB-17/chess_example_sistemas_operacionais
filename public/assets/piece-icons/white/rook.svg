@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <title>Torre branco</title>
+  <circle cx="128" cy="128" r="120" fill="#f3ead8" stroke="#c9a43a" stroke-width="8"/>
+  <circle cx="128" cy="128" r="108" fill="none" stroke="#c9a43a" stroke-width="2" opacity="0.6"/>
+  <path d="M80 66 h20 v16 h16 v-16 h24 v16 h16 v-16 h20 v40 l-14 12 v56 l14 8 h-96 l14-8 v-56 l-14-12 z" fill="#2a2118"/><rect x="74" y="182" width="108" height="18" rx="6" fill="#2a2118"/>
+</svg>
